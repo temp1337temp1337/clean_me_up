@@ -7,39 +7,6 @@ import mmap
 import sqlite3
 from rich.console import Console
 
-'''
-TODO:
-- Schedule
-- pandas or dataframes?
-- fdupes
-- find /path/to -regex ".*\.\(jpg\|gif\|png\|jpeg\)" > log
-
-Similar tools:
-# - https://github.com/mruffalo/hash-db
-# - https://github.com/trapexit/scorch
-# - https://github.com/temp1337temp1337/awesome_career/blob/4d230d117a93834703ac2059f469b0903ec772a3/gatech/6238_secure_computer_systems/assignment%234/server.py
-
-Requirements:
-- create tool for cleaning up files
-- database with hashes
-- zipped, tar, gz files -> extract
-- option to remove specific types of files (binary java files, vpn files etc.)
-- categorize specific types of files (doc, ppt etc. or generally photos)
-- skip folders/files
-- get a list of files and check which already exist in the database
-- get duplicates from the database
-- classify similar files (hexdump/xxd + compare?/bitmasking? - error bound => similar files)
-- get duplicates from the database
-- binary instead of cpython
-
-Links
-- https://stackoverflow.com/questions/42630025/python-how-to-compare-two-binary-files
-- https://codereview.stackexchange.com/questions/171003/python-code-that-compares-two-files-byte-by-byte
-- https://superuser.com/questions/154699/is-there-any-way-to-find-similar-files-not-duplicates
-- http://www.joerg-rosenthal.com/en/antitwin/
-'''
-
-
 # SQL initializer
 SQL_CONN = sqlite3.connect('database.db', check_same_thread=False)
 SQL_CURSOR = SQL_CONN.cursor()
