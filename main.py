@@ -1,3 +1,5 @@
+import sys
+
 import magic
 import os
 import hashlib
@@ -6,6 +8,12 @@ import sqlite3
 from rich.console import Console
 
 '''
+TODO:
+- Schedule
+- pandas or dataframes?
+- fdupes
+- find /path/to -regex ".*\.\(jpg\|gif\|png\|jpeg\)" > log
+
 Similar tools:
 # - https://github.com/mruffalo/hash-db
 # - https://github.com/trapexit/scorch
@@ -20,16 +28,20 @@ Requirements:
 - skip folders/files
 - get a list of files and check which already exist in the database
 - get duplicates from the database
+- classify similar files (hexdump/xxd + compare?/bitmasking? - error bound => similar files)
+- get duplicates from the database
+- binary instead of cpython
 
-- pandas or dataframes?
-
-find /path/to -regex ".*\.\(jpg\|gif\|png\|jpeg\)" > log
-
+Links
+- https://stackoverflow.com/questions/42630025/python-how-to-compare-two-binary-files
+- https://codereview.stackexchange.com/questions/171003/python-code-that-compares-two-files-byte-by-byte
+- https://superuser.com/questions/154699/is-there-any-way-to-find-similar-files-not-duplicates
+- http://www.joerg-rosenthal.com/en/antitwin/
 '''
 
 
 # SQL initializer
-SQL_CONN = sqlite3.connect('server.db', check_same_thread=False)
+SQL_CONN = sqlite3.connect('database.db', check_same_thread=False)
 SQL_CURSOR = SQL_CONN.cursor()
 CONSOLE = Console()
 HASH_FUNC = hashlib.sha512()
@@ -71,6 +83,8 @@ def traverse(root_dir):
     hashes = {}
     duplicates = {}
     types = {}
+    if not os.path.isdir(root_dir):
+        CONSOLE.print(f"[bold white][-][/bold white] {root_dir} does not exists!")
 
     for subdir, dirs, files in os.walk(root_dir):
         for file in files:
@@ -97,10 +111,7 @@ def traverse(root_dir):
 
             hashes[filehash] = filename  # stores the first entry with this hash
 
-    # export_duplicates(duplicates)
-    # update_db(object_list)
-
-    return types
+    return types, object_list, duplicates
 
 
 def init_database():
@@ -128,6 +139,17 @@ def close_database():
     SQL_CONN.close()                                # close the database
 
 
+def create_db(object_list):
+    for file in object_list:
+        SQL_CURSOR.execute('INSERT INTO file_hashes VALUES (?, ?, ?)', (file.hash, file.name, file.type))
+        if SQL_CURSOR.rowcount != 1:  # an issue with the DB was encountered
+            CONSOLE.print(f"[bold red][-][/bold red]Error while updating the database")
+            CONSOLE.print(f"[bold red][-][/bold red]Raised while inserting: {file.name} - {file.hash} - {file.type}")
+            # raise
+
+    SQL_CONN.commit()
+
+
 def update_db(object_list):
 
     for file in object_list:
@@ -146,16 +168,22 @@ def update_db(object_list):
     SQL_CONN.commit()
 
 
-def main():
-    path = "/Volumes/NO_NAME/__files_to_run_fdupes/csd_ihu_rijks/CSD_2"
+def main(path):
+    init_database()
 
     with CONSOLE.status("[bold green]Walking the directory ...") as _:
-        types = traverse(path)
+        types, object_list, duplicates = traverse(path)
 
     for filetype, count in sorted(types.items(), key=lambda x: -x[1]):
         CONSOLE.print(f"[bold red][+][/bold red] Found {count:<5} files of {filetype = } ")
 
+    export_duplicates(duplicates)
+    create_db(object_list)
+    # update_db(object_list)
+    close_database()
+
 
 if __name__ == '__main__':
-    main()
+    main(path=sys.argv[1])
+
 
