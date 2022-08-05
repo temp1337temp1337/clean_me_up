@@ -14,6 +14,13 @@ SQL_CURSOR = SQL_CONN.cursor()
 CONSOLE = Console()
 HASH_FUNC = hashlib.sha512()
 
+ADDITION = "[bold yellow][+][/bold yellow]"
+DELETION = "[bold cyan][-][/bold cyan]"
+OPERATION = "[bold white][!][/bold white]"
+ERROR = "[bold red][!][/bold red]"
+INFO = "[bold cyan][!][/bold cyan]"
+PROMPT = "[bold orange][!][/bold orange]"
+
 CATEGORIES = {
     # "ppt": "powerpoint,presentation",
     # "latex": "latex",
@@ -34,6 +41,10 @@ def get_file_type(filename):
     return magic.from_file(filename).split(",")[0]
 
 
+def rename(filename):
+    return f"{filename.split('.')[:-1]}{uuid.uuid4()}.{filename.split('.')[-1]}"
+
+
 def sha512sum(filename):
     if os.lstat(filename).st_size <= 0:
         return 0
@@ -46,45 +57,51 @@ def sha512sum(filename):
 
 def export_duplicates(duplicates):
     for filehash, filename_list in duplicates.items():
-        CONSOLE.print(f"[bold cyan][!][/bold cyan] Hash: {filehash} is shared with:")
+        CONSOLE.print(f"{INFO} Hash: {filehash} is shared with:")
         for filename in filename_list:
-            CONSOLE.print(f"[bold white][-][/bold white] {filename}")
+            CONSOLE.print(f"{INFO} {filename}")
 
 
 def process_empty(empty_files):
     for filename in empty_files:
         CONSOLE.clear_live()
-        CONSOLE.print(f"\n[bold yellow][-][/bold yellow] Zero sized file found: {filename}")
-        delete = CONSOLE.input("[bold yellow][!][/bold yellow] Do you want to delete it? ")
+        CONSOLE.print(f"\n{INFO} Zero sized file found: {filename}")
+        delete = CONSOLE.input(f"{PROMPT} Do you want to delete it? ")
         if any(delete.lower() == f for f in ["yes", 'y']):
             os.remove(filename)
-            CONSOLE.print(f"[bold yellow][!][/bold yellow] Deleted: {filename}")
+            CONSOLE.print(f"{DELETION} Deleted: {filename}")
+
+
+def execute_fetch_sql(path, folder_name, match_words):
+    sql_base = "SELECT filename FROM file_hashes WHERE "
+    like_words = match_words.split(',')
+    sql_statement = sql_base + " OR ".join(f"filetype LIKE '%{word}%'" for word in like_words if word.isalnum())
+
+    CONSOLE.print(f"{INFO} Executing: {sql_statement}")
+    SQL_CURSOR.execute(sql_statement)
+    files_found = SQL_CURSOR.fetchall()
+
+    CONSOLE.print(f"{ADDITION} Retrieved: {len(files_found)}")
+    return files_found
 
 
 def recategorize(path, category_list):
-    sql_base = "SELECT filename FROM file_hashes WHERE "
     for folder_name, match_words in category_list.items():
+        files_found = execute_fetch_sql(path, folder_name, match_words)
+        files = [filename[0] for filename in files_found]
         target_path = path + folder_name
-        like_words = match_words.split(',')
-        # SQL Injection below! First!
-        sql_statement = sql_base + " OR ".join(f"filetype LIKE '%{word}%'" for word in like_words if word.isalnum())
-        CONSOLE.print(f"[bold red][+][/bold red] Executing: {sql_statement}")
-        SQL_CURSOR.execute(sql_statement)
-        files_found = SQL_CURSOR.fetchall()
-        CONSOLE.print(f"[bold red][!][/bold red] Retrieved: {len(files_found)}")
 
-        move = CONSOLE.input(f"[bold red][!][/bold red] Do you want to move those to {target_path}? ")
+        move = CONSOLE.input(f"{PROMPT} Do you want to move those to {target_path}? ")
         if any(move.lower() == f for f in ["yes", 'y']):
             os.makedirs(target_path, exist_ok=False)
-            for file_entry in files_found:
-                filename = file_entry[0]
-                target_filename = target_path + "/" + filename.split("/")[-1]
 
-                # do not overwrite it
+            for filename in files:
+                target_filename = f"{target_path}/{filename.split('/')[-1]}"
+
                 if os.path.exists(target_filename):
-                    target_filename = f"{target_filename}-{uuid.uuid4()}"
+                    target_filename = rename(target_filename)
                 shutil.move(filename, target_filename)
-            CONSOLE.print(f"[bold red][!][/bold red] Moved {len(files_found)} files under {target_path}")
+            CONSOLE.print(f"{OPERATION} Moved {len(files_found)} files under {target_path}")
     return
 
 
