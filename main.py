@@ -21,12 +21,20 @@ ERROR = "[bold red][!][/bold red]"
 INFO = "[bold cyan][!][/bold cyan]"
 PROMPT = "[bold orange][!][/bold orange]"
 
-CATEGORIES = {
-    # "ppt": "powerpoint,presentation",
-    # "latex": "latex",
-    # "pdf": "pdf",
-    # "word": "word",
-    "iso": "rom",
+CATEGORIES_TO_MOVE = {
+    "powerpoint": "ppt",
+    "presentation": "ppt",
+    "tex": "latex",
+    "pdf": "pdf",
+    "word": "word",
+}
+
+CATEGORIES_TO_DEL = {
+    "rom": "iso",
+}
+
+SKIP_DIRS = {
+
 }
 
 
@@ -72,24 +80,21 @@ def process_empty(empty_files):
             CONSOLE.print(f"{DELETION} Deleted: {filename}")
 
 
-def execute_fetch_sql(path, folder_name, match_words):
-    sql_base = "SELECT filename FROM file_hashes WHERE "
-    like_words = match_words.split(',')
-    sql_statement = sql_base + " OR ".join(f"filetype LIKE '%{word}%'" for word in like_words if word.isalnum())
-
+def execute_fetch_sql(word):
+    sql_statement = f"SELECT filename FROM file_hashes WHERE filetype LIKE %{word}%"
     CONSOLE.print(f"{INFO} Executing: {sql_statement}")
-    SQL_CURSOR.execute(sql_statement)
+
+    SQL_CURSOR.execute('SELECT filename FROM file_hashes WHERE filetype LIKE ?', (f"%{word}%", ))
     files_found = SQL_CURSOR.fetchall()
 
     CONSOLE.print(f"{ADDITION} Retrieved: {len(files_found)}")
-    return files_found
+    return [filename[0] for filename in files_found]
 
 
 def recategorize(path, category_list):
-    for folder_name, match_words in category_list.items():
-        files_found = execute_fetch_sql(path, folder_name, match_words)
-        files = [filename[0] for filename in files_found]
-        target_path = path + folder_name
+    for word, folder_name in category_list.items():
+        files = execute_fetch_sql(word)
+        target_path = f"{path}{folder_name}"
 
         move = CONSOLE.input(f"{PROMPT} Do you want to move those to {target_path}? ")
         if any(move.lower() == f for f in ["yes", 'y']):
@@ -101,7 +106,8 @@ def recategorize(path, category_list):
                 if os.path.exists(target_filename):
                     target_filename = rename(target_filename)
                 shutil.move(filename, target_filename)
-            CONSOLE.print(f"{OPERATION} Moved {len(files_found)} files under {target_path}")
+            # TODO: update_db(files)
+            CONSOLE.print(f"{OPERATION} Moved {len(files)} files under {target_path}")
     return
 
 
@@ -113,7 +119,7 @@ def traverse(root_dir):
     empty = []
 
     if not os.path.isdir(root_dir):
-        CONSOLE.print(f"[bold white][-][/bold white] {root_dir} does not exists!")
+        CONSOLE.print(f"{ERROR} {root_dir} does not exists!")
 
     for subdir, dirs, files in os.walk(root_dir):
         for file in files:
@@ -152,7 +158,7 @@ def init_database():
     """
     SQL_CURSOR.execute('SELECT name FROM sqlite_master WHERE type="table"')  # retrieve tables
     tables_list = SQL_CURSOR.fetchall()                                      # retrieve results
-    tables = list(sum(tables_list, ()))                                  # flatten the list
+    tables = list(sum(tables_list, ()))                                      # flatten the list
 
     if 'file_hashes' not in tables:
         SQL_CURSOR.execute('CREATE TABLE file_hashes '
@@ -167,8 +173,8 @@ def create_db(object_list):
     for file in object_list:
         SQL_CURSOR.execute('INSERT INTO file_hashes VALUES (?, ?, ?)', (file.hash, file.name, file.type))
         if SQL_CURSOR.rowcount != 1:  # an issue with the DB was encountered
-            CONSOLE.print(f"[bold red][-][/bold red]Error while updating the database")
-            CONSOLE.print(f"[bold red][-][/bold red]Raised while inserting: {file.name} - {file.hash} - {file.type}")
+            CONSOLE.print(f"{ERROR} Error while updating the database")
+            CONSOLE.print(f"{ERROR} Raised while inserting: {file.name} - {file.hash} - {file.type}")
             # raise
 
     SQL_CONN.commit()
@@ -180,22 +186,19 @@ def update_db(object_list):
         SQL_CURSOR.execute('SELECT filehash FROM file_hashes WHERE filehash=?', (file.name, ))
         file_obj = SQL_CURSOR.fetchall()
         if len(file_obj) >= 1:  # the entry with this hash exists - duplicate found
-            print(f"Entry {file_obj} already exists in the database, skipping it")
-            print(f"Raised while inserting: {file.name} - {file.hash} - {file.type}")
+            CONSOLE.print(f"Entry {file_obj} already exists in the database, skipping it")
+            CONSOLE.print(f"Raised while inserting: {file.name} - {file.hash} - {file.type}")
 
         SQL_CURSOR.execute('INSERT INTO file_hashes VALUES (?, ?, ?)', (file.hash, file.name, file.type))
         if SQL_CURSOR.rowcount != 1:  # an issue with the DB was encountered
-            print(f"Error while updating the database")
-            print(f"Raised while inserting: {file.name} - {file.hash} - {file.type}")
+            CONSOLE.print(f"Error while updating the database")
+            CONSOLE.print(f"Raised while inserting: {file.name} - {file.hash} - {file.type}")
             # raise
 
     SQL_CONN.commit()
 
 
 def close_database():
-    """
-    :return:
-    """
     SQL_CONN.commit()                               # commit any non-committed changes
     SQL_CONN.close()                                # close the database
 
@@ -214,8 +217,8 @@ def main(path):
     '''
     # create_db(object_list)
     # update_db(object_list)
-    recategorize(path, category_list=CATEGORIES)
-    # remove_category(path, category_list=["iso"])
+    recategorize(path, category_list=CATEGORIES_TO_MOVE)
+    # remove_category(path, category_list=CATEGORIES_TO_DEL)
     close_database()
 
 
