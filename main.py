@@ -53,6 +53,12 @@ def rename(filename):
     return f"{filename.split('.')[:-1]}{uuid.uuid4()}.{filename.split('.')[-1]}"
 
 
+def read_skip_dir_file(skip_dir_file):
+    with open(skip_dir_file, "r") as file:
+        lines = file.readlines()
+    return [line.rstrip() for line in lines]
+
+
 def sha512sum(filename):
     if os.lstat(filename).st_size <= 0:
         return 0
@@ -111,7 +117,7 @@ def recategorize(path, category_list):
     return
 
 
-def traverse(root_dir):
+def traverse(root_dir, skip_dir):
     object_list = []
     hashes = {}
     duplicates = {}
@@ -122,8 +128,13 @@ def traverse(root_dir):
         CONSOLE.print(f"{ERROR} {root_dir} does not exists!")
 
     for subdir, dirs, files in os.walk(root_dir):
+
+        directory = os.path.join(root_dir, subdir)
+        if directory in skip_dir or subdir in skip_dir:
+            continue
+
         for file in files:
-            filename = os.path.join(root_dir, subdir, file)
+            filename = os.path.join(directory, file)
             filehash = sha512sum(filename)
             filetype = get_file_type(filename)
             file_obj = FileEntry(filename, filehash, filetype)
@@ -186,13 +197,11 @@ def update_db(object_list):
         SQL_CURSOR.execute('SELECT filehash FROM file_hashes WHERE filehash=?', (file.name, ))
         file_obj = SQL_CURSOR.fetchall()
         if len(file_obj) >= 1:  # the entry with this hash exists - duplicate found
-            CONSOLE.print(f"Entry {file_obj} already exists in the database, skipping it")
-            CONSOLE.print(f"Raised while inserting: {file.name} - {file.hash} - {file.type}")
+            CONSOLE.print(f"{ERROR} Raised while inserting: {file.name} - {file.hash} - {file.type} to the database")
 
         SQL_CURSOR.execute('INSERT INTO file_hashes VALUES (?, ?, ?)', (file.hash, file.name, file.type))
         if SQL_CURSOR.rowcount != 1:  # an issue with the DB was encountered
-            CONSOLE.print(f"Error while updating the database")
-            CONSOLE.print(f"Raised while inserting: {file.name} - {file.hash} - {file.type}")
+            CONSOLE.print(f"{ERROR} Raised while inserting: {file.name} - {file.hash} - {file.type} to the database")
             # raise
 
     SQL_CONN.commit()
@@ -203,19 +212,20 @@ def close_database():
     SQL_CONN.close()                                # close the database
 
 
-def main(path):
+def main(path, skip_dir_file):
+
+    skip_dir = read_skip_dir_file(skip_dir_file) if skip_dir_file else None
+
     init_database()
-    '''
     with CONSOLE.status("[bold green]Walking the directory ...") as _:
-        types, object_list, duplicates, empty = traverse(path)
+        types, object_list, duplicates, empty = traverse(path, skip_dir)
 
     for filetype, count in sorted(types.items(), key=lambda x: -x[1]):
         CONSOLE.print(f"[bold red][+][/bold red] Found {count:<5} files of {filetype = } ")
 
     export_duplicates(duplicates=duplicates)
     process_empty(empty_files=empty)
-    '''
-    # create_db(object_list)
+    create_db(object_list)
     # update_db(object_list)
     recategorize(path, category_list=CATEGORIES_TO_MOVE)
     # remove_category(path, category_list=CATEGORIES_TO_DEL)
@@ -223,6 +233,6 @@ def main(path):
 
 
 if __name__ == '__main__':
-    main(path=sys.argv[1])
+    main(path=sys.argv[1], skip_dir_file=sys.argv[2])
 
 
