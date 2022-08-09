@@ -6,6 +6,7 @@ import os
 import hashlib
 import mmap
 import sqlite3
+import subprocess
 from rich.console import Console
 
 # SQL initializer
@@ -34,15 +35,16 @@ CATEGORIES_TO_DEL = {
 }
 
 SKIP_DIRS = {
-
+    "",
 }
 
 
 class FileEntry:
-    def __init__(self, filename, filehash=None, filetype=None):
+    def __init__(self, filename, filehash=None, filetype=None, filesize=None):
         self.name = filename
         self.hash = filehash
         self.type = filetype
+        self.size = filesize
 
 
 def get_file_type(filename):
@@ -53,10 +55,42 @@ def rename(filename):
     return f"{filename.split('.')[:-1]}{uuid.uuid4()}.{filename.split('.')[-1]}"
 
 
+def calc_size(filename):
+    return os.stat(filename).st_size
+
+
+def wrap_word_output(word):
+    return f"[bold blue]{word}[/bold blue]"
+
+
 def read_skip_dir_file(skip_dir_file):
     with open(skip_dir_file, "r") as file:
         lines = file.readlines()
     return [line.rstrip() for line in lines]
+
+
+def run_fdupes(root_dir, log_file="fdupe_output.log"):
+    if sys.platform in ["linux", "linux2"]:
+        CONSOLE.print(f"{INFO} Checking if {wrap_word_output('fdupes')} is installed")
+
+        rn = subprocess.check_call("which fdupes", shell=True)
+        if rn != 0:
+            CONSOLE.print(f"{ERROR} {wrap_word_output('fdupes')} not installed!")
+            CONSOLE.print(f"{ERROR} Run {wrap_word_output('apt install fdupes')} to install it")
+
+    elif sys.platform == "darwin":
+        CONSOLE.print(f"{INFO} Checking if {wrap_word_output('fdupes')} is installed")
+
+        rn = subprocess.check_call("which fdupes", shell=True)
+        if rn != 0:
+            CONSOLE.print(f"{ERROR} {wrap_word_output('fdupes')} not installed!")
+            CONSOLE.print(f"{ERROR} Run {wrap_word_output('brew install fdupes')} to install it")
+
+    elif sys.platform == "win32":
+        CONSOLE.print(f"{ERROR} Sorry, cannot do windows ¯\_(ツ)_/¯")
+
+    with open(log_file, "w") as log:
+        return subprocess.check_call(f"fdupes -rdN {root_dir} -o 'time'", shell=True, stderr=log, stdout=log)
 
 
 def sha512sum(filename):
@@ -90,7 +124,7 @@ def execute_fetch_sql(word):
     sql_statement = f"SELECT filename FROM file_hashes WHERE filetype LIKE %{word}%"
     CONSOLE.print(f"{INFO} Executing: {sql_statement}")
 
-    SQL_CURSOR.execute('SELECT filename FROM file_hashes WHERE filetype LIKE ?', (f"%{word}%", ))
+    SQL_CURSOR.execute('SELECT filename FROM file_hashes WHERE filetype LIKE ?', (f"%{word}%",))
     files_found = SQL_CURSOR.fetchall()
 
     CONSOLE.print(f"{ADDITION} Retrieved: {len(files_found)}")
@@ -135,20 +169,16 @@ def traverse(root_dir, skip_dir):
 
         for file in files:
             filename = os.path.join(directory, file)
-            filehash = sha512sum(filename)
+            filesize = calc_size(filename)
+            filehash = 0 if filesize <= 0 else sha512sum(filename)
             filetype = get_file_type(filename)
-            file_obj = FileEntry(filename, filehash, filetype)
-            # print(f"Retrieved: {filename} - {filehash} - {filetype}")
-
+            file_obj = FileEntry(filename, filehash, filetype, filesize)
             object_list.append(file_obj)
 
             if filehash == 0:
                 empty.append(filename)
 
-            if filetype in types:
-                types[filetype] += 1
-            else:
-                types[filetype] = 1
+            types[filetype] = 1 if filetype in types else types[filetype] + 1
 
             if filehash in hashes and filehash in duplicates:
                 duplicates[filehash].append(filename)
@@ -168,8 +198,8 @@ def init_database():
     :return:
     """
     SQL_CURSOR.execute('SELECT name FROM sqlite_master WHERE type="table"')  # retrieve tables
-    tables_list = SQL_CURSOR.fetchall()                                      # retrieve results
-    tables = list(sum(tables_list, ()))                                      # flatten the list
+    tables_list = SQL_CURSOR.fetchall()  # retrieve results
+    tables = list(sum(tables_list, ()))  # flatten the list
 
     if 'file_hashes' not in tables:
         SQL_CURSOR.execute('CREATE TABLE file_hashes '
@@ -192,9 +222,8 @@ def create_db(object_list):
 
 
 def update_db(object_list):
-
     for file in object_list:
-        SQL_CURSOR.execute('SELECT filehash FROM file_hashes WHERE filehash=?', (file.name, ))
+        SQL_CURSOR.execute('SELECT filehash FROM file_hashes WHERE filehash=?', (file.name,))
         file_obj = SQL_CURSOR.fetchall()
         if len(file_obj) >= 1:  # the entry with this hash exists - duplicate found
             CONSOLE.print(f"{ERROR} Raised while inserting: {file.name} - {file.hash} - {file.type} to the database")
@@ -208,12 +237,11 @@ def update_db(object_list):
 
 
 def close_database():
-    SQL_CONN.commit()                               # commit any non-committed changes
-    SQL_CONN.close()                                # close the database
+    SQL_CONN.commit()  # commit any non-committed changes
+    SQL_CONN.close()  # close the database
 
 
 def main(path, skip_dir_file):
-
     skip_dir = read_skip_dir_file(skip_dir_file) if skip_dir_file else None
 
     init_database()
@@ -234,5 +262,3 @@ def main(path, skip_dir_file):
 
 if __name__ == '__main__':
     main(path=sys.argv[1], skip_dir_file=sys.argv[2])
-
-
