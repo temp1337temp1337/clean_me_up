@@ -6,6 +6,7 @@ import os
 import hashlib
 import mmap
 import sqlite3
+import argparse
 import subprocess
 from rich.console import Console
 
@@ -61,6 +62,16 @@ def calc_size(filename):
 
 def wrap_word_output(word):
     return f"[bold blue]{word}[/bold blue]"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--fdupes', help='', type=bool, required=False)
+    parser.add_argument('--recat', help='', type=bool, required=False)
+    parser.add_argument('--delete', help='', type=bool, required=False)
+    parser.add_argument('--create_db', help='', type=bool, required=False)
+    args = parser.parse_args()
+    return args
 
 
 def read_skip_dir_file(skip_dir_file):
@@ -242,6 +253,7 @@ def close_database():
 
 
 def main(path, skip_dir_file):
+    parse_args()
     skip_dir = read_skip_dir_file(skip_dir_file) if skip_dir_file else None
 
     init_database()
