@@ -71,6 +71,7 @@ def parse_args():
     parser.add_argument('--delete', help='', type=bool, required=False)
     parser.add_argument('--create_db', help='', type=bool, required=False)
     args = parser.parse_args()
+    # return args.fdupes, args.recat, args.delete, args.create_db
     return args
 
 
@@ -253,23 +254,35 @@ def close_database():
 
 
 def main(path, skip_dir_file):
-    parse_args()
+    args = parse_args()  # returns args.fdupes, args.recat, args.delete, args.create_db
     skip_dir = read_skip_dir_file(skip_dir_file) if skip_dir_file else None
 
-    init_database()
+    if args.fdupes:
+        run_fdupes(root_dir=path)
+
     with CONSOLE.status("[bold green]Walking the directory ...") as _:
         types, object_list, duplicates, empty = traverse(path, skip_dir)
 
+    if args.create_db:
+        init_database()
+        create_db(object_list)
+        close_database()
+
+    # TODO: add the below functionality consistently
+    '''
     for filetype, count in sorted(types.items(), key=lambda x: -x[1]):
         CONSOLE.print(f"[bold red][+][/bold red] Found {count:<5} files of {filetype = } ")
-
     export_duplicates(duplicates=duplicates)
     process_empty(empty_files=empty)
-    create_db(object_list)
-    # update_db(object_list)
-    recategorize(path, category_list=CATEGORIES_TO_MOVE)
-    # remove_category(path, category_list=CATEGORIES_TO_DEL)
-    close_database()
+    update_db(object_list)
+    '''
+
+    if args.recat:
+        recategorize(path, category_list=CATEGORIES_TO_MOVE)
+
+    if args.delete:
+        pass
+        # remove_category(path, category_list=CATEGORIES_TO_DEL)
 
 
 if __name__ == '__main__':
