@@ -69,8 +69,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--fdupes', help='', type=bool, required=False)
     parser.add_argument('--recat', help='', type=bool, required=False)
-    parser.add_argument('--delete', help='', type=bool, required=False)
+    parser.add_argument('--remove', help='', type=bool, required=False)
     parser.add_argument('--create_db', help='', type=bool, required=False)
+    parser.add_argument('--update_db', help='', type=bool, required=False)
     parser.add_argument('--show_counts', help='', type=bool, required=False)
     parser.add_argument('--show_empty', help='', type=bool, required=False)
     parser.add_argument('--show_duplicates', help='', type=bool, required=False)
@@ -302,6 +303,12 @@ def main(path, skip_dir_file):
         CONSOLE.print(f"{ERROR} Cannot run create and update the database.")
         CONSOLE.print(f"{ERROR} Only one of the two switches can be provided.")
 
+    if args.recat and not args.cat_to_move_file:
+        CONSOLE.print(f"{ERROR} Please provide the recat option and the filename")
+
+    if args.remove and args.cat_to_remove_file:
+        CONSOLE.print(f"{ERROR} Please provide the remove option and the filename")
+
     if args.fdupes:
         run_fdupes(root_dir=path)
 
@@ -337,7 +344,7 @@ def main(path, skip_dir_file):
     if args.recat:
         recategorize(path, category_list_filename=args.cat_to_move_file)
 
-    if args.delete:
+    if args.remove:
         remove_category(path, category_list_filename=args.cat_to_remove_file)
 
 
