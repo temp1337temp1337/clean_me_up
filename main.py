@@ -1,6 +1,7 @@
 import sys
 import shutil
 import uuid
+import json
 import magic
 import os
 import hashlib
@@ -70,8 +71,13 @@ def parse_args():
     parser.add_argument('--recat', help='', type=bool, required=False)
     parser.add_argument('--delete', help='', type=bool, required=False)
     parser.add_argument('--create_db', help='', type=bool, required=False)
+    parser.add_argument('--show_counts', help='', type=bool, required=False)
+    parser.add_argument('--show_empty', help='', type=bool, required=False)
+    parser.add_argument('--show_duplicates', help='', type=bool, required=False)
+    parser.add_argument('--skip_dir_file', help='', type=str, required=False)
+    parser.add_argument('--cat_to_move_file', help='', type=str, required=False)
+    parser.add_argument('--cat_to_remove_file', help='', type=str, required=False)
     args = parser.parse_args()
-    # return args.fdupes, args.recat, args.delete, args.create_db
     return args
 
 
@@ -143,7 +149,10 @@ def execute_fetch_sql(word):
     return [filename[0] for filename in files_found]
 
 
-def recategorize(path, category_list):
+def recategorize(path, category_list_filename):
+    with open(category_list_filename) as file:
+        category_list = json.load(file)
+
     for word, folder_name in category_list.items():
         files = execute_fetch_sql(word)
         target_path = f"{path}{folder_name}"
@@ -163,6 +172,25 @@ def recategorize(path, category_list):
     return
 
 
+def remove_category(path, category_list_filename):
+    with open(category_list_filename) as file:
+        category_list = json.load(file)
+
+    for word, folder_name in category_list.items():
+        files = execute_fetch_sql(word)
+        target_path = f"{path}{folder_name}"
+
+        remove = CONSOLE.input(f"{PROMPT} Do you want to delete the retrieved files? ")
+        if any(remove.lower() == f for f in ["yes", 'y']):
+            os.makedirs(target_path, exist_ok=False)
+
+            for filename in files:
+                os.remove(filename)
+                # TODO: update_db(files)
+            CONSOLE.print(f"{OPERATION} Moved {len(files)} files under {target_path}")
+    return
+
+
 def traverse(root_dir, skip_dir):
     object_list = []
     hashes = {}
@@ -176,6 +204,10 @@ def traverse(root_dir, skip_dir):
     for subdir, dirs, files in os.walk(root_dir):
 
         directory = os.path.join(root_dir, subdir)
+        if len(os.listdir(directory)) == 0:
+            empty.append(directory)
+            continue
+
         if directory in skip_dir or subdir in skip_dir:
             continue
 
@@ -205,19 +237,25 @@ def traverse(root_dir, skip_dir):
     return types, object_list, duplicates, empty
 
 
-def init_database():
-    """
-    :return:
-    """
+def empty_database():
     SQL_CURSOR.execute('SELECT name FROM sqlite_master WHERE type="table"')  # retrieve tables
     tables_list = SQL_CURSOR.fetchall()  # retrieve results
     tables = list(sum(tables_list, ()))  # flatten the list
 
     if 'file_hashes' not in tables:
-        SQL_CURSOR.execute('CREATE TABLE file_hashes '
-                           '(filehash TEXT PRIMARY KEY NOT NULL, '
-                           'filename TEXT NOT NULL, '
-                           'filetype TEXT NOT NULL);')
+        return True
+
+    SQL_CURSOR.execute('SELECT COUNT(*) FROM file_hashes')  # retrieve tables
+    table_count = SQL_CURSOR.fetchall()[0][0]  # retrieve results
+    return table_count == 0
+
+
+def init_database():
+    SQL_CURSOR.execute('CREATE TABLE file_hashes '
+                       '(filehash TEXT PRIMARY KEY NOT NULL, '
+                       'filename TEXT NOT NULL, '
+                       'filetype TEXT NOT NULL, '
+                       'filesize TEXT NOT NULL);')
     SQL_CONN.commit()
     return
 
@@ -228,7 +266,6 @@ def create_db(object_list):
         if SQL_CURSOR.rowcount != 1:  # an issue with the DB was encountered
             CONSOLE.print(f"{ERROR} Error while updating the database")
             CONSOLE.print(f"{ERROR} Raised while inserting: {file.name} - {file.hash} - {file.type}")
-            # raise
 
     SQL_CONN.commit()
 
@@ -250,39 +287,58 @@ def update_db(object_list):
 
 def close_database():
     SQL_CONN.commit()  # commit any non-committed changes
-    SQL_CONN.close()  # close the database
+    SQL_CONN.close()   # close the database
 
 
 def main(path, skip_dir_file):
-    args = parse_args()  # returns args.fdupes, args.recat, args.delete, args.create_db
-    skip_dir = read_skip_dir_file(skip_dir_file) if skip_dir_file else None
+    args = parse_args()
+    skip_dir = read_skip_dir_file(skip_dir_file) if args.skip_dir_file else None
+
+    if args.fdupes and args.show_duplicates:
+        CONSOLE.print(f"{ERROR} Cannot run fdupes and show the duplicates.")
+        CONSOLE.print(f"{ERROR} Duplicates would be removed afted fdupes.")
+
+    if args.create_db and args.update_db:
+        CONSOLE.print(f"{ERROR} Cannot run create and update the database.")
+        CONSOLE.print(f"{ERROR} Only one of the two switches can be provided.")
 
     if args.fdupes:
         run_fdupes(root_dir=path)
 
+    # TODO: any args that need the below, otherwise do not execute it
     with CONSOLE.status("[bold green]Walking the directory ...") as _:
         types, object_list, duplicates, empty = traverse(path, skip_dir)
 
     if args.create_db:
-        init_database()
-        create_db(object_list)
-        close_database()
+        if not empty_database():
+            CONSOLE.print(f"{ERROR} Database not empty!")
+            create = CONSOLE.input(f"{PROMPT} Do you want to create the database from scratch?")
 
-    # TODO: add the below functionality consistently
-    '''
-    for filetype, count in sorted(types.items(), key=lambda x: -x[1]):
-        CONSOLE.print(f"[bold red][+][/bold red] Found {count:<5} files of {filetype = } ")
-    export_duplicates(duplicates=duplicates)
-    process_empty(empty_files=empty)
-    update_db(object_list)
-    '''
+            if any(create.lower() == f for f in ["yes", 'y']):
+                os.remove("database.db")
+
+                init_database()
+                create_db(object_list=object_list)
+                close_database()
+
+    elif args.update_db:
+        update_db(object_list)
+
+    if args.show_counts:
+        for filetype, count in sorted(types.items(), key=lambda x: -x[1]):
+            CONSOLE.print(f"{ADDITION} Found {count:<5} files of {filetype = } ")
+
+    if not args.fdupes and args.show_duplicates:
+        export_duplicates(duplicates=duplicates)
+
+    if args.show_empty:
+        process_empty(empty_files=empty)
 
     if args.recat:
-        recategorize(path, category_list=CATEGORIES_TO_MOVE)
+        recategorize(path, category_list_filename=args.cat_to_move_file)
 
     if args.delete:
-        pass
-        # remove_category(path, category_list=CATEGORIES_TO_DEL)
+        remove_category(path, category_list_filename=args.cat_to_remove_file)
 
 
 if __name__ == '__main__':
