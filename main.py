@@ -24,6 +24,8 @@ ERROR = "[bold red][!][/bold red]"
 INFO = "[bold cyan][!][/bold cyan]"
 PROMPT = "[bold orange][!][/bold orange]"
 
+DEBUG = True
+
 CATEGORIES_TO_MOVE = {
     "powerpoint": "ppt",
     "presentation": "ppt",
@@ -67,17 +69,32 @@ def wrap_word_output(word):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--fdupes', help='', type=bool, required=False)
-    parser.add_argument('--recat', help='', type=bool, required=False)
-    parser.add_argument('--remove', help='', type=bool, required=False)
-    parser.add_argument('--create_db', help='', type=bool, required=False)
-    parser.add_argument('--update_db', help='', type=bool, required=False)
-    parser.add_argument('--show_counts', help='', type=bool, required=False)
-    parser.add_argument('--show_empty', help='', type=bool, required=False)
-    parser.add_argument('--show_duplicates', help='', type=bool, required=False)
-    parser.add_argument('--skip_dir_file', help='', type=str, required=False)
-    parser.add_argument('--cat_to_move_file', help='', type=str, required=False)
-    parser.add_argument('--cat_to_remove_file', help='', type=str, required=False)
+    parser.add_argument('--path', help='The path on which the operations will be performed',
+                        type=str, required=True)
+    parser.add_argument('--fdupes', help='Execute the "fdupes" UNIX command',
+                        type=bool, required=False)
+    parser.add_argument('--recat', help='Recategorize files to a targer folder, based on given keyword(s)',
+                        type=bool, required=False)
+    parser.add_argument('--remove', help='Remove files,  based on given keyword(s)',
+                        type=bool, required=False)
+    parser.add_argument('--create_db', help='Create a database for the given root directory',
+                        type=bool, required=False)
+    parser.add_argument('--update_db', help='Update an existing database with the files of the given directory',
+                        type=bool, required=False)
+    parser.add_argument('--show_counts', help='Show the counts of the different file types',
+                        type=bool, required=False)
+    parser.add_argument('--show_empty', help='Show the files and folders of zero size/zero elements',
+                        type=bool, required=False)
+    parser.add_argument('--show_duplicates', help='Show the files with the same hashes and different names/paths',
+                        type=bool, required=False)
+    parser.add_argument('--skip_dir_file', help='The filename of the directory entries to be skipped',
+                        type=str, required=False)
+    parser.add_argument('--cat_to_move_file', help='If recat is selected, the filename specifies the entries'
+                                                   'A json file with {"keyword":"target_folder"} entries',
+                        type=str, required=False)
+    parser.add_argument('--cat_to_remove_file', help='If remove is selected, the filename specifies the entries'
+                                                     'A json file with {"keyword"} entries',
+                        type=str, required=False)
     args = parser.parse_args()
     return args
 
@@ -140,27 +157,34 @@ def process_empty(empty_files):
 
 
 def execute_fetch_sql(word):
-    sql_statement = f"SELECT filename FROM file_hashes WHERE filetype LIKE %{word}%"
+    sql_statement = f"SELECT filename, filetype FROM file_hashes WHERE filetype LIKE %{word}%"
     CONSOLE.print(f"{INFO} Executing: {sql_statement}")
 
-    SQL_CURSOR.execute('SELECT filename FROM file_hashes WHERE filetype LIKE ?', (f"%{word}%",))
+    SQL_CURSOR.execute('SELECT filename, filetype FROM file_hashes WHERE filetype LIKE ?', (f"%{word}%",))
     files_found = SQL_CURSOR.fetchall()
 
     CONSOLE.print(f"{ADDITION} Retrieved: {len(files_found)}")
-    return [filename[0] for filename in files_found]
+    return [filename[0] for filename in files_found], set(filename[1] for filename in files_found)
 
 
 def recategorize(path, category_list_filename):
-    with open(category_list_filename) as file:
-        category_list = json.load(file)
+    if DEBUG:
+        category_list = CATEGORIES_TO_MOVE
+    else:
+        with open(category_list_filename) as file:
+            category_list = json.load(file)
 
     for word, folder_name in category_list.items():
-        files = execute_fetch_sql(word)
+        files, types = execute_fetch_sql(word)
         target_path = f"{path}{folder_name}"
+        CONSOLE.print(f"{ADDITION} The following file types were retrieved based on your criteria")
+        for ttype in types:
+            CONSOLE.print(f"{ADDITION} {ttype}")
+        CONSOLE.print(f"{INFO} Adjust your criteria to specific descriptions for more accurate results")
 
         move = CONSOLE.input(f"{PROMPT} Do you want to move those to {target_path}? ")
         if any(move.lower() == f for f in ["yes", 'y']):
-            os.makedirs(target_path, exist_ok=False)
+            os.makedirs(target_path, exist_ok=False)  # TODO: Review exist_ok
 
             for filename in files:
                 target_filename = f"{target_path}/{filename.split('/')[-1]}"
@@ -173,22 +197,27 @@ def recategorize(path, category_list_filename):
     return
 
 
-def remove_category(path, category_list_filename):
-    with open(category_list_filename) as file:
-        category_list = json.load(file)
+def remove_category(category_list_filename):
+    if DEBUG:
+        category_list = CATEGORIES_TO_DEL
+    else:
+        with open(category_list_filename) as file:
+            category_list = json.load(file)
 
-    for word, folder_name in category_list.items():
-        files = execute_fetch_sql(word)
-        target_path = f"{path}{folder_name}"
+    for word in category_list.keys():
+        files, types = execute_fetch_sql(word)
+        CONSOLE.print(f"{ADDITION} The following file types were retrieved based on your criteria")
+        for ttype in types:
+            CONSOLE.print(f"{ADDITION} {ttype}")
+        CONSOLE.print(f"{INFO} Adjust your criteria to specific descriptions for more accurate results")
 
         remove = CONSOLE.input(f"{PROMPT} Do you want to delete the retrieved files? ")
         if any(remove.lower() == f for f in ["yes", 'y']):
-            os.makedirs(target_path, exist_ok=False)
 
             for filename in files:
                 os.remove(filename)
                 # TODO: update_db(files)
-            CONSOLE.print(f"{OPERATION} Moved {len(files)} files under {target_path}")
+            CONSOLE.print(f"{OPERATION} Removed {len(files)} files")
     return
 
 
@@ -291,9 +320,12 @@ def close_database():
     SQL_CONN.close()   # close the database
 
 
-def main(path, skip_dir_file):
+def main():
     args = parse_args()
-    skip_dir = read_skip_dir_file(skip_dir_file) if args.skip_dir_file else None
+    if DEBUG:
+        skip_dir = SKIP_DIRS
+    else:
+        skip_dir = read_skip_dir_file(args.skip_dir_file)
 
     if args.fdupes and args.show_duplicates:
         CONSOLE.print(f"{ERROR} Cannot run fdupes and show the duplicates.")
@@ -304,17 +336,17 @@ def main(path, skip_dir_file):
         CONSOLE.print(f"{ERROR} Only one of the two switches can be provided.")
 
     if args.recat and not args.cat_to_move_file:
-        CONSOLE.print(f"{ERROR} Please provide the recat option and the filename")
+        CONSOLE.print(f"{ERROR} Please provide the recat option with a filename")
 
     if args.remove and args.cat_to_remove_file:
-        CONSOLE.print(f"{ERROR} Please provide the remove option and the filename")
+        CONSOLE.print(f"{ERROR} Please provide the remove option with a filename")
 
     if args.fdupes:
-        run_fdupes(root_dir=path)
+        run_fdupes(root_dir=args.path)
 
     # TODO: any args that need the below, otherwise do not execute it
     with CONSOLE.status("[bold green]Walking the directory ...") as _:
-        types, object_list, duplicates, empty = traverse(path, skip_dir)
+        types, object_list, duplicates, empty = traverse(args.path, skip_dir)
 
     if args.create_db:
         if not empty_database():
@@ -330,6 +362,7 @@ def main(path, skip_dir_file):
 
     elif args.update_db:
         update_db(object_list)
+        close_database()
 
     if args.show_counts:
         for filetype, count in sorted(types.items(), key=lambda x: -x[1]):
@@ -342,11 +375,11 @@ def main(path, skip_dir_file):
         process_empty(empty_files=empty)
 
     if args.recat:
-        recategorize(path, category_list_filename=args.cat_to_move_file)
+        recategorize(args.path, category_list_filename=args.cat_to_move_file)
 
     if args.remove:
-        remove_category(path, category_list_filename=args.cat_to_remove_file)
+        remove_category(category_list_filename=args.cat_to_remove_file)
 
 
 if __name__ == '__main__':
-    main(path=sys.argv[1], skip_dir_file=sys.argv[2])
+    main()
