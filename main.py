@@ -81,9 +81,9 @@ def parse_args():
                         type=bool, required=False)
     parser.add_argument('--update_db', help='Update an existing database with the files of the given directory',
                         type=bool, required=False)
-    parser.add_argument('--show_counts', help='Show the counts of the different file types',
+    parser.add_argument('--show_counts', help='Show the counts of the file types',
                         type=bool, required=False)
-    parser.add_argument('--show_empty', help='Show the files and folders of zero size/zero elements',
+    parser.add_argument('--show_empty', help='Show the files of zero size',
                         type=bool, required=False)
     parser.add_argument('--show_duplicates', help='Show the files with the same hashes and different names/paths',
                         type=bool, required=False)
@@ -95,6 +95,19 @@ def parse_args():
     parser.add_argument('--cat_to_remove_file', help='If remove is selected, the filename specifies the entries'
                                                      'A json file with {"keyword"} entries',
                         type=str, required=False)
+    parser.add_argument('--show_counts_from_db', help='Show the counts of the file types from the existing database',
+                        type=bool, required=False)
+    parser.add_argument('--show_empty_from_db', help='Show the files of zero size from the existing database',
+                        type=bool, required=False)
+    parser.add_argument('--recat_from_db', help='If recat is selected, the filename specifies the entries'
+                                                'A json file with {"keyword":"target_folder"} entries'
+                                                'The entries will be retrieved from the existing database',
+                        type=bool, required=False)
+    parser.add_argument('--remove_from_db', help='If remove is selected, the filename specifies the entries'
+                                                 'A json file with {"keyword"} entries'
+                                                 'The entries will be retrieved from the existing database',
+                        type=bool, required=False)
+
     args = parser.parse_args()
     return args
 
@@ -344,9 +357,13 @@ def main():
     if args.fdupes:
         run_fdupes(root_dir=args.path)
 
-    # TODO: any args that need the below, otherwise do not execute it
-    with CONSOLE.status("[bold green]Walking the directory ...") as _:
-        types, object_list, duplicates, empty = traverse(args.path, skip_dir)
+    if any(opt for opt in [args.show_counts_from_db, args.show_counts_from_db, args.show_empty_from_db,
+                           args.recat_from_db, args.remove_from_db]) and empty_database():
+        CONSOLE.print(f"{ERROR} Database is empty!")
+
+    if any(opt for opt in [args.create_db, args.update_db, args.show_counts, args.show_empty, args.recat, args.remove]):
+        with CONSOLE.status("[bold green]Walking the directory ...") as _:
+            types, object_list, duplicates, empty = traverse(args.path, skip_dir)
 
     if args.create_db:
         if not empty_database():
@@ -355,7 +372,6 @@ def main():
 
             if any(create.lower() == f for f in ["yes", 'y']):
                 os.remove("database.db")
-
                 init_database()
                 create_db(object_list=object_list)
                 close_database()
@@ -379,6 +395,26 @@ def main():
 
     if args.remove:
         remove_category(category_list_filename=args.cat_to_remove_file)
+
+    if args.show_counts_from_db:
+        # TODO: implement the func
+        pass
+
+    if args.show_counts_from_db:
+        # TODO: implement the func
+        pass
+
+    if args.show_empty_from_db:
+        # TODO: implement the func
+        pass
+
+    if args.recat_from_db:
+        # TODO: implement the func
+        pass
+
+    if args.remove_from_db:
+        # TODO: implement the func
+        pass
 
 
 if __name__ == '__main__':
